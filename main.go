@@ -26,7 +26,9 @@ import "os"
 import "encoding/json"
 import "io/ioutil"
 import "strings"
-//import "time"
+import "time"
+
+var client_args Args
 
 type Fio_args struct {
 	Direct		string `json:"direct"`
@@ -188,7 +190,7 @@ type Fio_results struct {
 
 type Node struct {
 	Hostname	string
-	Port		string
+	Port		int
 	}
 
 type Args struct {
@@ -213,7 +215,7 @@ func write_example_args(){
 		Nodes:		[]Node{
 			Node{
 				Hostname:	"localhost",
-				Port:		"10000",
+				Port:		10000,
 				},
 			},
 		Dir:		"/home/adip/tmp/fio/",
@@ -237,6 +239,27 @@ func write_example_args(){
 	if err != nil {
 		panic(err)}}
 
+
+func client_load_config(){
+	var err error
+	var raw []byte
+//	var args Args
+	
+	if len(os.Args) < 2 {
+		fmt.Println("config file not specified \nexiting...")
+		os.Exit(2)}
+	
+	raw,err = ioutil.ReadFile(os.Args[1])
+	if err != nil {
+		fmt.Printf("Argv[1] should point to file with client config")
+		panic(err)}
+	err = json.Unmarshal(raw, &client_args)
+	if err != nil {
+		fmt.Println("failed to unmarshal client config")
+		fmt.Println(err)
+		os.Exit(3)}
+	fmt.Printf("loaded config %#v\n", client_args)}
+
 func homePage(w http.ResponseWriter, r *http.Request){
 	fmt.Fprintf(w, "Welcome to the HomePage!")
 	fmt.Println("Endpoint Hit: homePage")}
@@ -252,20 +275,68 @@ func fio_processes_dump(w http.ResponseWriter, r *http.Request){
 		fmt.Println(err.Error())}
 	fmt.Fprintf(w, string(stdout))}
 
-func handleRequests() {
+func delayed_exit(ms int){
+	time.Sleep(time.Millisecond * time.Duration(ms))
+	// TODO kill fio benchmarks
+	os.Exit(0)}
+	
+func handle_exit(w http.ResponseWriter, r *http.Request){
+	fmt.Fprintf(w, "killing distfio server")
+	fmt.Println("Endpoint Hit: /exit")
+	go delayed_exit(100)}
+
+func handleRequests(){
 	http.HandleFunc("/", homePage)
 	http.HandleFunc("/fio_dump", fio_processes_dump)
+	http.HandleFunc("/exit", handle_exit)
 	log.Fatal(http.ListenAndServe(":10000", nil))}
+
+func client_req_kill(){
+	var err error
+	var resp *http.Response
+	var resp_data []byte
+	
+	if len(client_args.Nodes) == 0 {
+		log.Println("Node list is empty, couldn't kill any")
+		return}
+	for _,v:=range client_args.Nodes{
+		resp,err = http.Get(fmt.Sprintf("http://%s:%d/exit",
+			v.Hostname,
+			v.Port))
+		if err != nil {
+			log.Println(err)
+			os.Exit(105)}
+		resp_data,err = ioutil.ReadAll(resp.Body)
+		if err!=nil {
+			log.Fatal(err)}
+		log.Println(string(resp_data))}
+	log.Println("kill commands sent do all job servers.\nexiting...")
+	os.Exit(0)}
+
+func client_arguments_handle(){
+	if len(os.Args) <3 {
+		fmt.Println("clientd didn't receive any arguments")
+		fmt.Println("exiting...")
+		os.Exit(4)}
+	switch os.Args[2] {
+		case "kill":
+			fmt.Println("killing jobs servers")
+			client_req_kill()
+			//TODO kill job servers
+		default:
+			fmt.Printf("'%s' command doesn't exist", os.Args[2])}}
+
 
 func test_fio_json_ingest(){
 	var results Fio_results
 	var file_path string = "fio_results_example.json"
 	
+	fmt.Printf("\n\nfio json output file test\n")
 	jsonFile, err := os.Open(file_path)
 	if err != nil {
 	    fmt.Println(err)}
 	defer jsonFile.Close()
-
+	
 	raw, err := ioutil.ReadAll(jsonFile)
 	if err != nil {
 		fmt.Println("ERR reading cluster.json")
@@ -279,16 +350,19 @@ func test_fio_json_ingest(){
 	fmt.Printf("test_fio_json_ingest loaded results from file %s \n %+v\n",
 		file_path,
 		&results)
-	}
+	fmt.Printf("\nend of fio json output file test\n\n")}
+
 
 func server() {
 	test_fio_json_ingest()
-	//handleRequests()
+	handleRequests()
 }
 
 func client() {
 	fmt.Println("client not implemented yet")
 	write_example_args()
+	client_load_config()
+	client_arguments_handle()
 }
 
 func main() {
