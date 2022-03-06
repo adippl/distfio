@@ -25,6 +25,7 @@ import "os/exec"
 import "os"
 import "encoding/json"
 import "io/ioutil"
+import "strings"
 //import "time"
 
 type Fio_args struct {
@@ -35,6 +36,14 @@ type Fio_args struct {
 	Iodepth		string `json:"iodepth"`
 	Runtime		string `json:"runtime"`
 	Numjobs		string `json:"numjobs"`
+	
+	// s3 specific options
+	Http_verbose	string `json:"http_verbose"`
+	Https			string `json:"https"`
+	Http_s3_key		string `json:"http_s3_key"`
+	Http_s3_keyid	string `json:"http_s3_keyid"`
+	Http_host		string `json:"http_host"`
+	Http_s3_region	string `json:"http_s3_region"`
 	}
 
 type Fio_job_options struct {
@@ -167,8 +176,6 @@ type Fio_stats struct {
 	Iops_samples	int64 `json:"iops_samples"`
 }
 
-
-
 type Fio_results struct {
 	Fio_version		string `json:"fio version"`
 	Timestamp		int64 `json:"timestamp"`
@@ -178,6 +185,57 @@ type Fio_results struct {
 	Global_options	Fio_args `json:"global options"`
 	Jobs			[]Fio_job `json:"jobs"`
 }
+
+type Node struct {
+	Hostname	string
+	Port		string
+	}
+
+type Args struct {
+	Nodes		[]Node
+	Dir			string
+	Device		string
+	Bs			string
+	Iodepth		string
+	Direct		string
+	Ioengine	string
+	Runtime		string
+	Numjobs		string
+	Name		string
+	Rwmode		string
+	Group_reporting		bool
+	Time_based			bool
+	}
+
+func write_example_args(){
+	var err error
+	example_args := Args{
+		Nodes:		[]Node{
+			Node{
+				Hostname:	"localhost",
+				Port:		"10000",
+				},
+			},
+		Dir:		"/home/adip/tmp/fio/",
+		Device:		"",
+		Bs:			"4k",
+		Iodepth:	"32",
+		Direct:		"1",
+		Ioengine:	"direct",
+		Runtime:	"",
+		Numjobs:	"8",
+		Name:		"raw_randread",
+		Rwmode:		"randread",
+		}
+	file,err := json.MarshalIndent(example_args, "", "\t")
+	if err != nil {
+		fmt.Println(err)
+		panic(err)}
+	
+	fmt.Println("writing example config to ./arguments_example.json")
+	err = ioutil.WriteFile("./arguments_example.json", file, 0644)
+	if err != nil {
+		panic(err)}}
 
 func homePage(w http.ResponseWriter, r *http.Request){
 	fmt.Fprintf(w, "Welcome to the HomePage!")
@@ -213,15 +271,43 @@ func test_fio_json_ingest(){
 		fmt.Println("ERR reading cluster.json")
 		os.Exit(10);}
 		
-	json.Unmarshal(raw,&results)
+	err = nil
+	err = json.Unmarshal(raw,&results)
+	if err!=nil {
+		fmt.Println("ERR while trying to unmarshal test file", err)
+		os.Exit(11);}
 	fmt.Printf("test_fio_json_ingest loaded results from file %s \n %+v\n",
 		file_path,
 		&results)
 	}
 
-
-
-func main() {
+func server() {
 	test_fio_json_ingest()
 	//handleRequests()
 }
+
+func client() {
+	fmt.Println("client not implemented yet")
+	write_example_args()
+}
+
+func main() {
+	var args0split []string
+	var progname string
+	
+	// get name of the program
+	fmt.Println("arg0", os.Args[0])
+	args0split = strings.Split(os.Args[0], "/")
+	progname = args0split[len(args0split)-1]
+	
+	if progname == "distfio" {
+		fmt.Println("starting in daemon mode")
+		server()
+		os.Exit(0)
+	}else if progname == "distfio-client" {
+		fmt.Println("started in client mode")
+		client()
+		os.Exit(0)
+	}else{
+		fmt.Fprintln(os.Stderr, "incorrect filename! ", progname)
+		os.Exit(1)}}
