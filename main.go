@@ -27,8 +27,10 @@ import "encoding/json"
 import "io/ioutil"
 import "strings"
 import "time"
+import "bytes"
 
 var client_args Args
+var job_args Args
 
 type Fio_args struct {
 	Direct		string `json:"direct"`
@@ -264,6 +266,65 @@ func homePage(w http.ResponseWriter, r *http.Request){
 	fmt.Fprintf(w, "Welcome to the HomePage!")
 	fmt.Println("Endpoint Hit: homePage")}
 
+func handle_fio_job_submission(w http.ResponseWriter, r *http.Request){
+	var err  error
+	var dec  *json.Decoder
+	var args Args
+
+	log.Println("\n\nEndpoint Hit: handle_fio_job_submission")
+	//debug	log.Println(r.Header.Get("Content-Type"))
+	if r.Header.Get("Content-Type") != "application/json; charset=UTF-8" {
+		fmt.Fprintf(w, "fio job submission page")
+		return}
+	//limit request to 1MiB
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+	//	//debug
+	//	buf := new(bytes.Buffer)
+	//	buf.ReadFrom(r.Body)
+	//	log.Println(buf.String())
+	//	//debug
+	dec = json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	err = dec.Decode(&args)
+	if err!=nil {
+		log.Println(err)}
+	log.Println("received job submission")
+	log.Printf("%#v\n", args)
+	//TODO start job and send result in response
+	//delay simulatin job work
+	time.Sleep(time.Second * time.Duration(5))
+	}
+
+func client_fio_job_submission(){
+	var err			error
+	var jsonData	[]byte
+	var req			*http.Request
+	var postUrl		string
+	var resp		*http.Response
+	var resp_data	[]byte
+	var client		*http.Client
+	
+	jsonData,err = json.Marshal(client_args)
+	if err!=nil {
+		log.Fatal(err)}
+	
+	
+	for _,v:=range client_args.Nodes{
+		postUrl = fmt.Sprintf("http://%s:%d/job_submission",
+			v.Hostname,
+			v.Port)
+		req,err = http.NewRequest("POST", postUrl, bytes.NewBuffer(jsonData))
+		req.Header.Set("Content-Type", "application/json; charset=UTF-8")
+		client = &http.Client{}
+		resp,err = client.Do(req)
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(105)}
+		resp_data,err = ioutil.ReadAll(resp.Body)
+		if err!=nil {
+			log.Fatal(err)}
+		log.Println(string(resp_data))}
+	}
 
 func fio_processes_dump(w http.ResponseWriter, r *http.Request){
 	fmt.Fprintf(w, "Fio process dump\n")
@@ -289,6 +350,7 @@ func handleRequests(){
 	http.HandleFunc("/", homePage)
 	http.HandleFunc("/fio_dump", fio_processes_dump)
 	http.HandleFunc("/exit", handle_exit)
+	http.HandleFunc("/job_submission", handle_fio_job_submission)
 	log.Fatal(http.ListenAndServe(":10000", nil))}
 
 func client_req_kill(){
@@ -313,6 +375,7 @@ func client_req_kill(){
 	log.Println("kill commands sent do all job servers.\nexiting...")
 	os.Exit(0)}
 
+
 func client_arguments_handle(){
 	if len(os.Args) <3 {
 		fmt.Println("clientd didn't receive any arguments")
@@ -323,6 +386,9 @@ func client_arguments_handle(){
 			fmt.Println("killing jobs servers")
 			client_req_kill()
 			//TODO kill job servers
+		// TODO kill all JOBS on servers
+		case "start":
+			client_fio_job_submission()
 		default:
 			fmt.Printf("'%s' command doesn't exist", os.Args[2])}}
 
